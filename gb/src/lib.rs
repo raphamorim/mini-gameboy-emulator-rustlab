@@ -10,8 +10,8 @@ pub enum Button {
 }
 
 pub struct GameBoy {
-    width: u8,
-    height: u8,
+    width: u32,
+    height: u32,
 }
 
 impl GameBoy {
@@ -23,12 +23,12 @@ impl GameBoy {
     }
 
     #[inline]
-    pub fn width(&self) -> u8 {
+    pub fn width(&self) -> u32 {
         self.width
     }
 
     #[inline]
-    pub fn height(&self) -> u8 {
+    pub fn height(&self) -> u32 {
         self.height
     }
 
