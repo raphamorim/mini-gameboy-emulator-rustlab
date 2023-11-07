@@ -1,14 +1,45 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
+pub enum Button {
+    A,
+    B,
+    Left,
+    Right,
+    Up,
+    Down,
+    Start,
+    Select,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub struct GameBoy {
+    width: u8,
+    height: u8,
+}
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+impl GameBoy {
+    pub fn new(_data: Vec<u8>) -> GameBoy {
+        GameBoy {
+            width: 160,
+            height: 144,
+        }
     }
+
+    #[inline]
+    pub fn width(&self) -> u8 {
+        self.width
+    }
+
+    #[inline]
+    pub fn height(&self) -> u8 {
+        self.height
+    }
+
+    #[inline]
+    pub fn data(&self) -> &[u8] {
+        &[]
+    }
+
+    pub fn frame(&self) {}
+
+    pub fn keydown(&self, button: Button) {}
+
+    pub fn keyup(&self, button: Button) {}
 }

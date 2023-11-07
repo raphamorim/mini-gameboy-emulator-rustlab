@@ -1,0 +1,30 @@
+[workspace]
+members = [
+  "gb",
+  "gb-desktop"
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Raphael Amorim"]
+
+[workspace.dependencies]
+
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+strip = true
+debug = 0
+panic = "abort"
+codegen-units = 1
+incremental = false
+
+[profile.dev]
+split-debuginfo = "unpacked"
+lto = false
+incremental = true
+opt-level = 0
