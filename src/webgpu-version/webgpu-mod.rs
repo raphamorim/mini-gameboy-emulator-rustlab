@@ -1,62 +1,91 @@
-use std::io::Error;
-use gb::{Button, GameBoy};
-use std::borrow::Cow;
+mod gameboy;
+
+use gameboy::{Button, GameBoy};
 use winit::{
-    dpi::LogicalSize,
     event::{Event, WindowEvent},
     event_loop::EventLoop,
     window::{WindowBuilder, Window},
 };
+use wgpu::{Instance, SurfaceConfiguration};
 
-#[inline]
-pub fn load_our_game_rom() -> Result<Vec<u8>, Error> {
-    use std::{fs::File, io::Read};
-    let mut rom = Vec::new();
-    let file = File::open("./rom/game.gb");
-    file.and_then(|mut f| f.read_to_end(&mut rom))?;
-    Ok(rom)
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+fn start() {
+    run(vec![]);
 }
 
-fn main() {
-    let rom_data = load_our_game_rom().unwrap();
+pub fn run(rom_data: Vec<u8>) {
     let gameboy = GameBoy::new(rom_data);
 
     let event_loop = EventLoop::new().unwrap();
-    let window = WindowBuilder::new()
-        .with_title("GameBoy")
-        .with_inner_size(LogicalSize::new(gameboy.width(), gameboy.height()))
-        .with_resizable(true)
-        .build(&event_loop)
-        .unwrap();
+    let builder = WindowBuilder::new()
+        .with_title("Game Boy");
+
+    #[cfg(target_arch = "wasm32")]
+    let builder = {
+        use winit::platform::web::WindowBuilderExtWebSys;
+        builder.with_append(true)
+    };
+    
+    #[cfg(not(target_arch = "wasm32"))]
+    let builder = builder.with_inner_size(winit::dpi::LogicalSize::new(gameboy.width(), gameboy.height()))
+        .with_resizable(true);
+
+    let window = builder.build(&event_loop).unwrap();
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        env_logger::init();
-        pollster::block_on(run(event_loop, window));
+        pollster::block_on(run_event_loop(event_loop, window));
     }
     #[cfg(target_arch = "wasm32")]
     {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-        console_log::init().expect("could not initialize logger");
+        console_log::init_with_level(log::Level::Debug)
+            .expect("error initializing logger");
+
         use winit::platform::web::WindowExtWebSys;
-        let canvas = window.canvas().expect("Couldn't get canvas");
-        canvas.style().set_css_text("height: 100%; width: 100%;");
-        // On wasm, append the canvas to the document body
-        web_sys::window()
-            .and_then(|win| win.document())
-            .and_then(|doc| doc.body())
-            .and_then(|body| body.append_child(&canvas).ok())
-            .expect("couldn't append canvas to document body");
-        wasm_bindgen_futures::spawn_local(run(event_loop, window));
+        use softbuffer::{Surface, SurfaceExtWeb};
+        use std::num::NonZeroU32;
+
+        let canvas = window.canvas().unwrap();
+        let mut surface = Surface::from_canvas(canvas.clone()).unwrap();
+        surface
+            .resize(
+                NonZeroU32::new(gameboy.width()).unwrap(),
+                NonZeroU32::new(gameboy.height()).unwrap(),
+            )
+            .unwrap();
+        let mut buffer = surface.buffer_mut().unwrap();
+        buffer.fill(0xFFF0000);
+        buffer.present().unwrap();
+        wasm_bindgen_futures::spawn_local(run_event_loop(event_loop, window));
     }
 }
 
-async fn run(event_loop: EventLoop<()>, window: Window) {
+async fn run_event_loop(event_loop: EventLoop<()>, window: Window) {
     let mut size = window.inner_size();
     size.width = size.width.max(1);
     size.height = size.height.max(1);
 
-    let instance = wgpu::Instance::default();
+    #[cfg(target_arch = "wasm32")]
+    let default_backend = wgpu::Backends::GL;
+    #[cfg(not(target_arch = "wasm32"))]
+    let default_backend = wgpu::Backends::all();
+
+    let backend = wgpu::util::backend_bits_from_env().unwrap_or(default_backend);
+    log::info!("selected backend: {backend:?}");
+
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: backend,
+        ..Default::default()
+    });
+
+    log::info!("Available adapters:");
+    for a in instance.enumerate_adapters(wgpu::Backends::all()) {
+        log::info!("    {:?}", a.get_info())
+    }
+
+    log::info!("selected instance: {instance:?}");
 
     let surface = unsafe { instance.create_surface(&window) }.unwrap();
     let adapter = instance
@@ -87,7 +116,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     // Load the shaders from disk
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
-        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
+        source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("shader.wgsl"))),
     });
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -118,12 +147,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         multiview: None,
     });
 
-    let config = wgpu::SurfaceConfiguration {
+    let config = SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: swapchain_format,
         width: size.width,
         height: size.height,
-        present_mode: wgpu::PresentMode::Fifo,
+        present_mode: wgpu::PresentMode::AutoVsync,
         alpha_mode: swapchain_capabilities.alpha_modes[0],
         view_formats: vec![],
     };
@@ -162,7 +191,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                                         view: &view,
                                         resolve_target: None,
                                         ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                                             store: wgpu::StoreOp::Store,
                                         },
                                     })],
@@ -184,4 +213,3 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         })
         .unwrap();
 }
-

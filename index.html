@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en-US">
+  <head>
+    <title>Game Boy WebAssembly</title>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  </head>
+  <style type="text/css">
+    #game {border: 1px solid black; width: 160px; height: 144px; background: black;}
+  </style>
+  <body>
+    <div id="game"></div>
+    <script type="module">
+      import init from "./wasm/web.js";
+      init()
+        .then(({ render }) => {
+          render();
+        })
+        .catch(err => {
+          console.log(err);
+        });
+    </script>
+  </body>
+</html>

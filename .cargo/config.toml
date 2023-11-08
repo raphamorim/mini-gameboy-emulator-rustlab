@@ -1,0 +1,5 @@
+[target.wasm32-unknown-unknown]
+rustflags = [
+    # Enabled unstable APIs from web_sys
+    "--cfg=web_sys_unstable_apis"
+]

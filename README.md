@@ -1,7 +1,3 @@
-# mini-gameboy-emulator-rustlab
+# mini-gameboy-emulator-rustlab (Rustlab 2023 talk)
 
-Mini gameboy emulator made to run only one game (Rustlab 2023)
-
-```bash
-cargo init --lib gb
-```
+Mini gameboy emulator made to run only one game
