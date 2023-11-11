@@ -1,4 +1,4 @@
-// Retired originally from https://github.com/mvdnes/rboy
+// Originally ported from https://github.com/mvdnes/rboy
 // Licensed under MIT License https://github.com/mvdnes/rboy/blob/master/LICENSE
 //
 // Also for inspiration:
@@ -6,7 +6,7 @@
 
 pub struct Gpu {
     mode: u8,
-    modeclock: u32,
+    clock: u32,
     line: u8,
     lyc: u8,
     lcd_on: bool,
@@ -15,7 +15,7 @@ pub struct Gpu {
     bg_tilemap: u16,
     sprite_size: u32,
     sprite_on: bool,
-    lyc_inte: bool,
+    ly: bool,
     scy: u8,
     scx: u8,
     winy: u8,
@@ -26,7 +26,7 @@ pub struct Gpu {
     pal0r: u8,
     palb: [u8; 4],
     pal0: [u8; 4],
-    pub vram: [u8; 0x4000],
+    pub vram: [u8; 8 << 10],
     pub voam: [u8; 0xA0],
     vrambank: usize,
     pub data: Box<[u8; 92160]>,
@@ -38,7 +38,7 @@ impl Gpu {
     pub fn new() -> Gpu {
         Gpu {
             mode: 0,
-            modeclock: 0,
+            clock: 0,
             line: 0,
             lyc: 0,
             lcd_on: false,
@@ -47,7 +47,7 @@ impl Gpu {
             bg_tilemap: 0x9C00,
             sprite_size: 8,
             sprite_on: false,
-            lyc_inte: false,
+            ly: false,
             scy: 0,
             scx: 0,
             winy: 0,
@@ -58,7 +58,7 @@ impl Gpu {
             pal0r: 0,
             palb: [0; 4],
             pal0: [0; 4],
-            vram: [0; 0x4000],
+            vram: [0; 8 << 10],
             voam: [0; 0xA0],
             data: Box::new([0; 92160]),
             updated: false,
@@ -76,13 +76,15 @@ impl Gpu {
 
         while ticksleft > 0 {
             let curticks = if ticksleft >= 80 { 80 } else { ticksleft };
-            self.modeclock += curticks;
+            self.clock += curticks;
             ticksleft -= curticks;
 
-            if self.modeclock >= 456 {
-                self.modeclock -= 456;
+            // If clock >= 456, then we've completed an entire line. This line might
+            // have been part of a vblank or part of a scanline.
+            if self.clock >= 456 {
+                self.clock -= 456;
                 self.line = (self.line + 1) % 154;
-                if self.lyc_inte && self.line == self.lyc {
+                if self.ly && self.line == self.lyc {
                     self.interrupt |= 0x02;
                 }
 
@@ -92,14 +94,17 @@ impl Gpu {
             }
 
             if self.line < 144 {
-                if self.modeclock <= 80 {
+                // RDOAM takes 80 cycles
+                if self.clock <= 80 {
                     if self.mode != 2 {
                         self.change_mode(2);
                     }
-                } else if self.modeclock <= (80 + 172) {
+                // RDVRAM takes 172 cycles
+                } else if self.clock <= (80 + 172) {
                     if self.mode != 3 {
                         self.change_mode(3);
                     }
+                // HBLANK takes rest of time before line rendered
                 } else if self.mode != 0 {
                     self.change_mode(0);
                 }
@@ -155,7 +160,7 @@ impl Gpu {
                     | (if self.sprite_on { 0x02 } else { 0 })
             }
             0xFF41 => {
-                0x80 | (if self.lyc_inte { 0x40 } else { 0 })
+                0x80 | (if self.ly { 0x40 } else { 0 })
                     | (if self.line == self.lyc { 0x04 } else { 0 })
                     | self.mode
             }
@@ -185,7 +190,7 @@ impl Gpu {
                 self.sprite_size = if v & 0x04 == 0x04 { 16 } else { 8 };
                 self.sprite_on = v & 0x02 == 0x02;
                 if !self.lcd_on {
-                    self.modeclock = 0;
+                    self.clock = 0;
                     self.line = 0;
                     self.mode = 0;
                     self.wy_trigger = false;
@@ -196,7 +201,7 @@ impl Gpu {
                 }
             }
             0xFF41 => {
-                self.lyc_inte = v & 0x40 == 0x40;
+                self.ly = v & 0x40 == 0x40;
             }
             0xFF42 => self.scy = v,
             0xFF43 => self.scx = v,
