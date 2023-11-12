@@ -4,13 +4,6 @@ mod mmu;
 
 use crate::gameboy::cpu::Cpu;
 
-pub struct Keypad {
-    row0: u8,
-    row1: u8,
-    data: u8,
-    pub interrupt: u8,
-}
-
 #[derive(Copy, Clone)]
 pub enum Button {
     A,
@@ -23,71 +16,141 @@ pub enum Button {
     Select,
 }
 
-impl Default for Keypad {
+pub struct Input {
+    current: u8,
+    buttons: u8,
+    directions: u8,
+}
+
+impl Default for Input {
     fn default() -> Self {
-        Keypad {
-            row0: 0x0F,
-            row1: 0x0F,
-            data: 0xFF,
-            interrupt: 0,
+        Input {
+            current: 0x10,
+            buttons: 0xf,
+            directions: 0xf,
         }
     }
 }
 
-impl Keypad {
-    pub fn rb(&self) -> u8 {
-        self.data
+impl Input {
+    pub fn read_byte(&self) -> u8 {
+        match self.current {
+            0x20 => self.buttons,
+            0x10 => self.directions,
+            _ => 0xf,
+        }
     }
 
-    pub fn wb(&mut self, value: u8) {
-        self.data = (self.data & 0xCF) | (value & 0x30);
-        self.update();
+    pub fn write_byte(&mut self, value: u8) {
+        match !value & 0x30 {
+            0x20 => self.current = 0x20,
+            0x10 => self.current = 0x10,
+            _ => {}
+        }
     }
 
-    fn update(&mut self) {
-        let old_values = self.data & 0xF;
-        let mut new_values = 0xF;
-
-        if self.data & 0x10 == 0x00 {
-            new_values &= self.row0;
-        }
-        if self.data & 0x20 == 0x00 {
-            new_values &= self.row1;
-        }
-
-        if old_values == 0xF && new_values != 0xF {
-            self.interrupt |= 0x10;
-        }
-
-        self.data = (self.data & 0xF0) | new_values;
-    }
-
+    // The eight gameboy buttons/direction keys are arranged in form of a 2x4 matrix.
+    // Select either button or direction keys by writing to this register, then read-out bit 0-3.
+    // Bit 7 - Not used
+    // Bit 6 - Not used
+    // Bit 5 - P15 Select Button Keys      (0=Select)
+    // Bit 4 - P14 Select Direction Keys   (0=Select)
+    // Bit 3 - P13 Input Down  or Start    (0=Pressed) (Read Only)
+    // Bit 2 - P12 Input Up    or Select   (0=Pressed) (Read Only)
+    // Bit 1 - P11 Input Left  or Button B (0=Pressed) (Read Only)
+    // Bit 0 - P10 Input Right or Button A (0=Pressed) (Read Only)
+    //
+    // Example
+    // Bit 3 - P13 Input Down or Start (0=Pressed) 0111 = 0x7
+    // Bit 2 - P12 Input Up or Select (0=Pressed) 1011 = 0xb
+    // Bit 1 - P11 Input Left or Button B (0=Pressed) 1101 = 0xd
+    // Bit 0 - P10 Input Right or Button A (0=Pressed) 1110 = 0xe
     pub fn keydown(&mut self, key: Button) {
         match key {
-            Button::Right => self.row0 &= !(1 << 0),
-            Button::Left => self.row0 &= !(1 << 1),
-            Button::Up => self.row0 &= !(1 << 2),
-            Button::Down => self.row0 &= !(1 << 3),
-            Button::A => self.row1 &= !(1 << 0),
-            Button::B => self.row1 &= !(1 << 1),
-            Button::Select => self.row1 &= !(1 << 2),
-            Button::Start => self.row1 &= !(1 << 3),
+            Button::A => {
+                self.buttons &= 0xe;
+            }
+            Button::B => {
+                self.buttons &= 0xd;
+            }
+            Button::Start => {
+                self.buttons &= 0x7;
+            }
+            Button::Select => {
+                self.buttons &= 0xb;
+            }
+            Button::Left => {
+                self.directions &= 0xd;
+            }
+            Button::Up => {
+                self.directions &= 0xb;
+            }
+            Button::Down => {
+                self.directions &= 0x7;
+            }
+            Button::Right => {
+                self.directions &= 0xe;
+            }
         }
-        self.update();
     }
 
     pub fn keyup(&mut self, key: Button) {
         match key {
-            Button::Right => self.row0 |= 1 << 0,
-            Button::Left => self.row0 |= 1 << 1,
-            Button::Up => self.row0 |= 1 << 2,
-            Button::Down => self.row0 |= 1 << 3,
-            Button::A => self.row1 |= 1 << 0,
-            Button::B => self.row1 |= 1 << 1,
-            Button::Select => self.row1 |= 1 << 2,
-            Button::Start => self.row1 |= 1 << 3,
+            Button::A => {
+                self.buttons |= !0xe;
+            }
+            Button::B => {
+                self.buttons |= !0xd;
+            }
+            Button::Start => {
+                self.buttons |= !0x7;
+            }
+            Button::Select => {
+                self.buttons |= !0xb;
+            }
+            Button::Left => {
+                self.directions |= !0xd;
+            }
+            Button::Up => {
+                self.directions |= !0xb;
+            }
+            Button::Down => {
+                self.directions |= !0x7;
+            }
+            Button::Right => {
+                self.directions |= !0xe;
+            }
         }
-        self.update();
+    }
+}
+
+pub struct MemoryBankController {
+    rom: Vec<u8>,
+    rombank: usize,
+    rombanks: usize,
+}
+
+impl MemoryBankController {
+    pub fn new(data: Vec<u8>) -> MemoryBankController {
+        MemoryBankController {
+            rom: data,
+            rombank: 1,
+            rombanks: 8,
+        }
+    }
+    pub fn readrom(&self, a: u16) -> u8 {
+        let bank = if a < 0x4000 { 0 } else { self.rombank };
+        let idx = (bank * 0x4000) | ((a as usize) & 0x3FFF);
+        *self.rom.get(idx).unwrap_or(&0xFF)
+    }
+    pub fn writerom(&mut self, a: u16, v: u8) {
+        if let 0x2000..=0x3FFF = a {
+            let lower = match (v as usize) & 0x1F {
+                0 => 1,
+                n => n,
+            };
+            self.rombank = ((self.rombank & 0x60) | lower) % self.rombanks;
+        }
     }
 }
 
@@ -131,9 +194,9 @@ impl GameBoy {
         &*self.cpu.memory.gpu.data
     }
     pub fn keydown(&mut self, key: Button) {
-        self.cpu.memory.keypad.keydown(key);
+        self.cpu.memory.input.keydown(key);
     }
     pub fn keyup(&mut self, key: Button) {
-        self.cpu.memory.keypad.keyup(key);
+        self.cpu.memory.input.keyup(key);
     }
 }
